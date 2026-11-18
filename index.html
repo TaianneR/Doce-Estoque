@@ -13,6 +13,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Questrial&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <style>
 :root{--roxo:#834e9e;--fram:#e93388;--fram2:#fde3f0;--pist:#f6eefa;--pist2:#d8c1e6;--choc:#2d1a38;--cinza:#76677f;--alerta:#c92a2a}
 *{box-sizing:border-box}
@@ -48,9 +49,10 @@ b,h1,h3{font-weight:400}
 label{font-size:14px;color:var(--cinza)}
 .ped{padding:10px 0;border-bottom:1px solid #d3e2c8}.ped summary{cursor:pointer;line-height:1.3}
 .ped summary b{float:right}.ped div{padding:6px 0 0 14px;color:var(--cinza);font-size:14px}
+.chk{width:24px;height:24px;padding:0;flex:none;accent-color:var(--roxo)}
 .ciclo{font-size:13px;color:var(--cinza);margin:-2px 0 4px}
 .ok{color:#2b8a3e}
-nav button{flex:1;background:none;color:var(--cinza);border-radius:0;padding:9px 0;font-size:12px;line-height:1.3}
+nav button{flex:1;min-width:0;background:none;color:var(--cinza);border-radius:0;padding:9px 0;font-size:11px;line-height:1.3}
 nav button.on{color:var(--roxo);box-shadow:inset 0 3px 0 var(--roxo)}
 .vazio{padding:30px 6px;text-align:center;color:var(--cinza)}
 </style>
@@ -70,10 +72,10 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const R = v => Number(v || 0).toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
-const S = {lojas:[], cats:[], prods:[], est:{}, hist:[], cons:{}, pedidos:[], papel:null, loja:null, aba:'estoque', edit:null, editCat:null};
+const S = {lojas:[], cats:[], prods:[], est:{}, hist:[], cons:{}, pedidos:[], papel:null, loja:null, aba:'estoque', edit:null, editCat:null, nome:'', sel:new Set(), busca:'', fcat:'', vis:[]};
 const ABAS = {
-  dona: [['estoque','📦<br>Estoque'],['pedido','🛒<br>Pedido'],['prev','⏳<br>Previsão'],['hist','🕘<br>Histórico'],['cad','⚙️<br>Cadastro']],
-  dono: [['estoque','📦<br>Estoque'],['pedido','🛒<br>Pedido'],['prev','⏳<br>Previsão'],['hist','🕘<br>Histórico']],
+  dona: [['estoque','📦<br>Estoque'],['pedido','🛒<br>Pedido'],['sorv','🍦<br>Sorvetes'],['prev','⏳<br>Previsão'],['hist','🕘<br>Histórico'],['cad','⚙️<br>Cadastro']],
+  dono: [['estoque','📦<br>Estoque'],['pedido','🛒<br>Pedido'],['sorv','🍦<br>Sorvetes'],['prev','⏳<br>Previsão'],['hist','🕘<br>Histórico']],
   colaboradora: [['estoque','📦<br>Estoque']]
 };
 const CATS = () => S.cats.concat([{id:null, nome:'Sem categoria'}]);
@@ -101,7 +103,7 @@ async function carregar() {
     sb.from('categorias').select('*').order('nome'),
     sb.from('produtos').select('*').eq('ativo', true).order('nome'),
     sb.from('estoque').select('*'),
-    sb.from('perfis').select('papel').maybeSingle(),
+    sb.from('perfis').select('*').maybeSingle(),
     sb.from('movimentos').select('delta,usuario,criado_em,lojas(nome),produtos(nome)').order('criado_em', {ascending:false}).limit(100),
     sb.from('v_consumo').select('*'),
     sb.from('pedidos').select('id,loja_id,categoria_id,valor,itens,usuario,criado_em,lojas(nome),categorias(nome)').order('criado_em', {ascending:false}).limit(60)
@@ -112,6 +114,8 @@ async function carregar() {
   S.est = {};
   r[3].data.forEach(x => S.est[x.loja_id + '_' + x.produto_id] = Number(x.qtd));
   S.papel = r[4].data?.papel ?? null;
+  const em = (await sb.auth.getSession()).data.session?.user?.email || '';
+  S.nome = r[4].data?.nome || (em.split('@')[0].charAt(0).toUpperCase() + em.split('@')[0].slice(1));
   S.hist = r[5].data || [];
   S.cons = {};
   (r[6].data || []).forEach(x => S.cons[x.loja_id + '_' + x.produto_id] = {saida: Number(x.saida || 0), dias: Number(x.dias || 1)});
@@ -133,7 +137,7 @@ function render() {
     <select aria-label="Loja" onchange="S.loja=+this.value;render()">${S.lojas.map(l => `<option value="${l.id}" ${l.id == S.loja ? 'selected' : ''}>${esc(l.nome)}</option>`).join('')}</select>
     <button class="sec" onclick="sair()">Sair</button>`;
   $('#n').innerHTML = abas.map(([k, t]) => `<button class="${S.aba == k ? 'on' : ''}" onclick="S.aba='${k}';render();scrollTo(0,0)">${t}</button>`).join('');
-  $('#m').innerHTML = {estoque: vEstoque, pedido: vPedido, prev: vPrev, hist: vHist, cad: vCad}[S.aba]();
+  $('#m').innerHTML = {estoque: vEstoque, pedido: vPedido, sorv: vSorv, prev: vPrev, hist: vHist, cad: vCad}[S.aba]();
 }
 
 /* ---------- Estoque ---------- */
@@ -212,35 +216,135 @@ function infoCiclo(c) {
   }
   return `<div class="ciclo">${t}</div>`;
 }
-function vPedido() {
+const tipoCat = c => c ? (c.tipo || (/^Grupo MAR/.test(c.fornecedor || '') ? 'sorvete' : 'geral')) : 'geral';
+function vPed(tipo) {
   if (!S.loja) return '<div class="vazio">Cadastre uma loja primeiro.</div>';
-  const it = itensPedido();
+  const it = itensPedido().filter(x => tipoCat(S.cats.find(c => c.id == x.p.categoria_id)) == tipo);
   let tot = 0;
-  const h = CATS().map(c => {
+  const h = CATS().filter(c => tipoCat(c) == tipo).map(c => {
     const xs = it.filter(x => x.p.categoria_id == c.id);
     if (!xs.length) return '';
     const sub = xs.reduce((a, x) => a + x.n * x.p.preco, 0);
     tot += sub;
     return `<div class="cat">${esc(c.nome)} <small>${c.fornecedor ? esc(c.fornecedor) + ' · ' : ''}${R(sub)}</small></div>` + infoCiclo(c) +
       xs.map(x => `<div class="item ${x.falta ? 'baixo' : ''}"><div class="nome">${esc(x.p.nome)}<small>tem ${x.q}${x.dr != null ? ' · dura ' + fmtDias(x.dr) : ''} · mínimo ${x.p.minimo}</small></div><b>${x.n} ${esc(x.p.unidade)}</b></div>`).join('') +
-      `<div class="acoes"><button class="sec" onclick="copiar(${c.id})">Copiar</button>${S.papel == 'dona' ? `<button onclick="registrar(${c.id})">Registrar pedido feito</button>` : ''}</div>`;
+      `<div class="acoes"><button class="sec" onclick="copiar(${c.id})">Copiar</button><button onclick="gerarPedido('${tipo}', ${c.id})">${S.papel == 'dona' ? 'Gerar pedido' : 'Gerar PDF'}</button></div>`;
   }).join('');
-  return `<div class="total"><small>${esc(lojaNome())} · estimativa do pedido</small>${R(tot)}</div>` +
+  return `<div class="total"><small>${esc(lojaNome())} · ${tipo == 'sorvete' ? 'pedido de sorvetes' : 'estimativa do pedido'}</small>${R(tot)}</div>` +
     (h || '<div class="vazio">Nada para pedir agora. 🎉</div>') +
-    `<div class="acoes"><button onclick="copiar()">Copiar tudo</button><button class="sec" onclick="csv()">Exportar CSV</button></div>`;
+    `<div class="acoes"><button onclick="gerarPedido('${tipo}')">${S.papel == 'dona' ? 'Gerar pedido completo' : 'Gerar PDF completo'}</button><button class="sec" onclick="copiar(undefined,'${tipo}')">Copiar tudo</button>${tipo == 'geral' ? '<button class="sec" onclick="csv()">Exportar CSV</button>' : ''}</div>`;
 }
-async function registrar(cid) {
-  const xs = itensPedido().filter(x => x.p.categoria_id == cid);
-  if (!xs.length) return;
-  const valor = xs.reduce((a, x) => a + x.n * x.p.preco, 0);
-  if (!confirm('Registrar este pedido de ' + R(valor) + ' como feito hoje?')) return;
-  const {error} = await sb.from('pedidos').insert({loja_id: S.loja, categoria_id: cid, valor, itens: xs.map(x => ({produto: x.p.nome, qtd: x.n, unidade: x.p.unidade, preco: x.p.preco}))});
-  if (error) return alert('Não salvou: ' + error.message + '\n(Você rodou a atualização do banco?)');
-  alert('Pedido registrado.'); carregar();
+const vPedido = () => vPed('geral'), vSorv = () => vPed('sorvete');
+/* PDF-INI */
+function montarPdf(J, o) {
+  const doc = new J({unit: 'mm', format: 'a4'});
+  const W = 210, M = 14, FIM = 276;
+  const roxo = [131, 78, 158], claro = [246, 238, 250], cinza = [105, 95, 115];
+  const num = v => Number(v).toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+  let y = 0;
+  const cabecalho = () => {
+    doc.setFillColor(...roxo); doc.rect(0, 0, W, 5, 'F');
+    if (o.logo) { try { const pr = doc.getImageProperties(o.logo); const w = 38; doc.addImage(o.logo, 'PNG', M, 11, w, w * pr.height / pr.width); } catch (e) {} }
+    doc.setTextColor(40, 25, 55); doc.setFont('helvetica', 'bold'); doc.setFontSize(19); doc.text(o.titulo, W - M, 22, {align: 'right'});
+    doc.setFontSize(13); doc.text('Pedido do dia ' + o.data, W - M, 30, {align: 'right'});
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5); doc.setTextColor(...cinza); doc.text('Loja: ' + o.loja, W - M, 36.5, {align: 'right'});
+    y = 52;
+  };
+  const colunas = () => {
+    doc.setFillColor(...claro); doc.rect(M, y, W - 2 * M, 6.5, 'F');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...roxo);
+    doc.text('Item', M + 2, y + 4.4); doc.text('Qtd.', 128, y + 4.4, {align: 'right'}); doc.text('Un.', 132, y + 4.4);
+    doc.text('Valor unit.', 170, y + 4.4, {align: 'right'}); doc.text('Subtotal', W - M - 2, y + 4.4, {align: 'right'});
+    y += 6.5;
+  };
+  const catCab = g => {
+    doc.setFillColor(...roxo); doc.rect(M, y, W - 2 * M, 8, 'F');
+    doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text(g.nome + (g.fornecedor ? '  -  ' + g.fornecedor : ''), M + 2.5, y + 5.5);
+    if (g.info) { doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.text(g.info, W - M - 2.5, y + 5.4, {align: 'right'}); }
+    y += 8; colunas();
+  };
+  cabecalho();
+  let total = 0;
+  o.grupos.forEach(g => {
+    if (y + 8 + 6.5 + 8 > FIM) { doc.addPage(); cabecalho(); }
+    catCab(g);
+    let sub = 0;
+    g.itens.forEach((it, i) => {
+      const linhas = doc.splitTextToSize(it.nome, 92);
+      const h = Math.max(7, linhas.length * 4.4 + 2.6);
+      if (y + h > FIM) { doc.addPage(); cabecalho(); catCab({...g, nome: g.nome + ' (cont.)'}); }
+      if (i % 2) { doc.setFillColor(251, 248, 253); doc.rect(M, y, W - 2 * M, h, 'F'); }
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(40, 25, 55);
+      doc.text(linhas, M + 2, y + 4.8);
+      const v = it.qtd * it.preco; sub += v; total += v;
+      doc.text(String(it.qtd).replace('.', ','), 128, y + 4.8, {align: 'right'});
+      doc.text(String(it.un), 132, y + 4.8);
+      doc.text('R$ ' + num(it.preco), 170, y + 4.8, {align: 'right'});
+      doc.text('R$ ' + num(v), W - M - 2, y + 4.8, {align: 'right'});
+      y += h;
+    });
+    doc.setDrawColor(...roxo); doc.setLineWidth(0.3); doc.line(M, y, W - M, y);
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(9.5); doc.setTextColor(...roxo);
+    doc.text('Subtotal ' + g.nome + ':  R$ ' + num(sub), W - M - 2, y + 5.2, {align: 'right'});
+    y += 11;
+  });
+  if (y + 30 > FIM) { doc.addPage(); cabecalho(); }
+  doc.setFillColor(...roxo); doc.roundedRect(W - M - 78, y, 78, 11, 2, 2, 'F');
+  doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold'); doc.setFontSize(12.5);
+  doc.text('TOTAL: R$ ' + num(total), W - M - 4, y + 7.4, {align: 'right'});
+  y += 24;
+  doc.setTextColor(40, 25, 55); doc.setFont('helvetica', 'bold'); doc.setFontSize(12); doc.text('Emitido por: ' + o.usuario, M, y);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(...cinza); doc.text('em ' + o.emitido, M, y + 5.5);
+  const n = doc.getNumberOfPages();
+  for (let i = 1; i <= n; i++) {
+    doc.setPage(i); doc.setFontSize(8.5); doc.setTextColor(...cinza); doc.setFont('helvetica', 'normal');
+    doc.setDrawColor(220, 205, 232); doc.setLineWidth(0.2); doc.line(M, 285, W - M, 285);
+    doc.text('Doce Gelato - Controle de estoque', M, 290); doc.text('Página ' + i + ' de ' + n, W - M, 290, {align: 'right'});
+  }
+  return doc;
 }
-function copiar(cid) {
+/* PDF-FIM */
+const feitoNoCiclo = c => {
+  const ult = c.id != null && c.dia_pedido != null ? S.pedidos.find(p => p.loja_id == S.loja && p.categoria_id == c.id) : null;
+  return !!ult && new Date(ult.criado_em) >= addDias(hoje0(), -desde(c.dia_pedido));
+};
+async function gerarPedido(tipo, cid) {
+  const J = window.jspdf && window.jspdf.jsPDF;
+  if (!J) return alert('Não consegui carregar o gerador de PDF. Confira a internet e tente de novo.');
+  const cats = CATS().filter(c => cid === undefined ? tipoCat(c) == tipo : c.id === cid);
   const it = itensPedido();
-  const t = CATS().filter(c => cid === undefined || c.id === cid).map(c => {
+  const grupos = cats.map(c => {
+    const cy = c.id != null ? ciclo(c) : null;
+    return {c, nome: c.nome, fornecedor: c.fornecedor, info: cy && cy.dataEntrega ? 'Entrega: ' + fd(cy.dataEntrega) : '',
+      itens: it.filter(x => x.p.categoria_id == c.id).map(x => ({nome: x.p.nome, qtd: x.n, un: x.p.unidade, preco: Number(x.p.preco)}))};
+  }).filter(g => g.itens.length);
+  if (!grupos.length) return alert('Não há itens para este pedido.');
+  const dona = S.papel == 'dona';
+  if (dona) {
+    const tot = grupos.reduce((a, g) => a + g.itens.reduce((b, i) => b + i.qtd * i.preco, 0), 0);
+    const jaFeito = grupos.filter(g => feitoNoCiclo(g.c)).map(g => g.nome);
+    if (!confirm('Gerar o pedido de ' + R(tot) + ' e registrar no histórico como feito hoje?' + (jaFeito.length ? '\n\nAtenção: já existe pedido registrado neste ciclo para: ' + jaFeito.join(', ') + '.' : ''))) return;
+  }
+  const d = new Date(), p2 = n => String(n).padStart(2, '0');
+  const doc = montarPdf(J, {titulo: tipo == 'sorvete' ? 'Pedido de Sorvetes' : 'Pedido de Reposição', loja: lojaNome(), usuario: S.nome || 'Usuário',
+    data: d.toLocaleDateString('pt-BR'), emitido: d.toLocaleDateString('pt-BR') + ' às ' + p2(d.getHours()) + ':' + p2(d.getMinutes()),
+    grupos, logo: typeof LOGO !== 'undefined' ? LOGO : null});
+  const nome = 'Pedido-' + (tipo == 'sorvete' ? 'Sorvetes' : 'Geral') + '-' + d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + '.pdf';
+  const arq = new File([doc.output('blob')], nome, {type: 'application/pdf'});
+  if (navigator.canShare && navigator.canShare({files: [arq]})) navigator.share({files: [arq], title: nome}).catch(e => { if (e.name != 'AbortError') doc.save(nome); });
+  else doc.save(nome);
+  if (dona) {
+    const linhas = grupos.map(g => ({loja_id: S.loja, categoria_id: g.c.id, valor: g.itens.reduce((a, i) => a + i.qtd * i.preco, 0),
+      itens: g.itens.map(i => ({produto: i.nome, qtd: i.qtd, unidade: i.un, preco: i.preco}))}));
+    const {error} = await sb.from('pedidos').insert(linhas);
+    if (error) alert('O PDF foi gerado, mas o pedido NÃO foi registrado no histórico: ' + error.message + '\n(Você rodou a atualização do banco?)');
+    else carregar();
+  }
+}
+function copiar(cid, tipo) {
+  const it = itensPedido();
+  const t = CATS().filter(c => cid === undefined ? (!tipo || tipoCat(c) == tipo) : c.id === cid).map(c => {
     const xs = it.filter(x => x.p.categoria_id == c.id);
     return xs.length ? `*${c.nome}${c.fornecedor ? ' (' + c.fornecedor + ')' : ''}*\n` + xs.map(x => `- ${x.p.nome}: ${x.n} ${x.p.unidade}`).join('\n') : '';
   }).filter(Boolean).join('\n\n');
@@ -259,14 +363,23 @@ async function csv() {
 }
 
 /* ---------- Cadastro ---------- */
+function listaProd() {
+  const b = (S.busca || '').toLowerCase().trim();
+  const ps = S.prods.filter(p => (!S.fcat || (S.fcat == 'null' ? p.categoria_id == null : p.categoria_id == S.fcat)) && (!b || p.nome.toLowerCase().includes(b)));
+  S.vis = ps.map(p => p.id);
+  return `<div class="ciclo">${ps.length} produtos na lista</div>` + ps.map(p => `<div class="item"><input type="checkbox" class="chk" aria-label="Marcar" ${S.sel.has(p.id) ? 'checked' : ''} onchange="selProd(${p.id}, this.checked)">
+      <div class="nome">${esc(p.nome)}<small>${R(p.preco)} · ${esc(p.unidade)} · mínimo ${p.minimo} · ideal ${p.ideal}</small></div>
+      <button class="sec" aria-label="Editar" onclick="editar(${p.id})">✎</button><button class="sec" aria-label="Remover" onclick="remover(${p.id})">🗑</button></div>`).join('');
+}
 function vCad() {
   const e = S.edit || {}, ec = S.editCat || {};
   const optDia = v => '<option value="">Não definido</option>' + DIAS.map((d, i) => `<option value="${i}" ${v != null && v == i ? 'selected' : ''}>${d}</option>`).join('');
-  return `<div class="box"><h3>Lojas</h3>${S.lojas.map(l => esc(l.nome)).join(', ') || 'Nenhuma ainda'}
+  return `<div class="box"><h3>Lojas</h3>${S.lojas.map(l => `<div class="item"><div class="nome">${esc(l.nome)}</div><button class="sec" aria-label="Excluir loja" onclick="removerLoja(${l.id})">🗑</button></div>`).join('') || 'Nenhuma ainda'}
       <div class="row"><input id="nl" placeholder="Nome da loja"><button onclick="addLoja()">Adicionar</button></div></div>
-    <div class="box"><h3>Categorias e fornecedores</h3>${S.cats.map(c => `<div class="item"><div class="nome">${esc(c.nome)}<small>${c.fornecedor ? esc(c.fornecedor) + ' · ' : ''}${c.dia_pedido != null ? 'pedido ' + DS[c.dia_pedido] : 'sem dia de pedido'}${c.dia_entrega != null ? ' · entrega ' + DS[c.dia_entrega] : ''}</small></div><button class="sec" aria-label="Editar categoria" onclick="editarCat(${c.id})">✎</button></div>`).join('') || 'Nenhuma ainda'}
+    <div class="box"><h3>Categorias e fornecedores</h3>${S.cats.map(c => `<div class="item"><div class="nome">${esc(c.nome)}<small>${c.fornecedor ? esc(c.fornecedor) + ' · ' : ''}${tipoCat(c) == 'sorvete' ? 'aba Sorvetes · ' : ''}${c.dia_pedido != null ? 'pedido ' + DS[c.dia_pedido] : 'sem dia de pedido'}${c.dia_entrega != null ? ' · entrega ' + DS[c.dia_entrega] : ''}</small></div><button class="sec" aria-label="Editar categoria" onclick="editarCat(${c.id})">✎</button><button class="sec" aria-label="Excluir categoria" onclick="removerCat(${c.id})">🗑</button></div>`).join('') || 'Nenhuma ainda'}
       <h3 style="margin-top:10px">${ec.id ? 'Editar categoria' : 'Nova categoria'}</h3>
       <div class="row"><input id="nc" placeholder="Categoria" value="${esc(ec.nome)}"><input id="nf" placeholder="Fornecedor" value="${esc(ec.fornecedor)}"></div>
+      <label>Em qual aba entra o pedido?</label><select id="tp"><option value="geral">Pedido (demais itens)</option><option value="sorvete" ${ec.id && tipoCat(ec) == 'sorvete' ? 'selected' : ''}>Sorvetes, picolés e açaí</option></select>
       <label>Dia de enviar o pedido</label><select id="dp">${optDia(ec.dia_pedido)}</select>
       <label>Dia da entrega</label><select id="de">${optDia(ec.dia_entrega)}</select>
       <div class="row"><button onclick="salvarCat()">Salvar categoria</button>${ec.id ? '<button class="sec" onclick="S.editCat=null;render()">Cancelar</button>' : ''}</div></div>
@@ -276,9 +389,34 @@ function vCad() {
       <div class="row"><input id="pu" placeholder="Unidade (un, kg, cx)" value="${esc(e.unidade || 'un')}"><input id="pp" type="number" step="0.01" inputmode="decimal" placeholder="Preço R$" value="${e.preco ?? ''}"></div>
       <div class="row"><input id="pm" type="number" inputmode="decimal" placeholder="Estoque mínimo" value="${e.minimo ?? ''}"><input id="pi" type="number" inputmode="decimal" placeholder="Estoque ideal" value="${e.ideal ?? ''}"></div>
       <div class="row"><button onclick="salvarProd()">Salvar produto</button>${e.id ? '<button class="sec" onclick="S.edit=null;render()">Cancelar</button>' : ''}</div></div>
-    <h3>Produtos (${S.prods.length})</h3>` +
-    S.prods.map(p => `<div class="item"><div class="nome">${esc(p.nome)}<small>${R(p.preco)} · mínimo ${p.minimo} · ideal ${p.ideal}</small></div>
-      <button class="sec" aria-label="Editar" onclick="editar(${p.id})">✎</button><button class="sec" aria-label="Remover" onclick="remover(${p.id})">🗑</button></div>`).join('');
+    <h3>Produtos (${S.prods.length})</h3>
+    <div class="box"><input id="bp" type="search" placeholder="Buscar produto" value="${esc(S.busca)}" oninput="filtrarProd()">
+      <select id="fc" onchange="filtrarProd()"><option value="">Todas as categorias</option>${S.cats.map(c => `<option value="${c.id}" ${S.fcat == c.id ? 'selected' : ''}>${esc(c.nome)}</option>`).join('')}<option value="null" ${S.fcat == 'null' ? 'selected' : ''}>Sem categoria</option></select>
+      <div class="row"><button class="sec" onclick="selTodos()">Marcar todos da lista</button><button class="sec" onclick="S.sel.clear();filtrarProd()">Desmarcar</button></div>
+      <button id="brs" onclick="removerSel()">Remover marcados (${S.sel.size})</button></div>
+    <div id="lp">${listaProd()}</div>`;
+}
+function filtrarProd() { S.busca = $('#bp').value; S.fcat = $('#fc').value; $('#lp').innerHTML = listaProd(); }
+const updSel = () => { const b = $('#brs'); if (b) b.textContent = 'Remover marcados (' + S.sel.size + ')'; };
+function selProd(id, on) { on ? S.sel.add(id) : S.sel.delete(id); updSel(); }
+function selTodos() { S.vis.forEach(id => S.sel.add(id)); $('#lp').innerHTML = listaProd(); updSel(); }
+async function removerSel() {
+  const ids = [...S.sel];
+  if (!ids.length) return alert('Marque os produtos que quer remover.');
+  if (!confirm('Remover ' + ids.length + ' produto(s)? O histórico de movimentações é mantido.')) return;
+  const {error} = await sb.from('produtos').update({ativo: false}).in('id', ids);
+  if (error) return alert(error.message);
+  S.sel.clear(); carregar();
+}
+function removerLoja(id) {
+  const l = S.lojas.find(x => x.id == id);
+  if (confirm('Excluir a loja "' + l.nome + '"? O estoque dela será apagado.')) run(sb.from('lojas').delete().eq('id', id));
+}
+async function removerCat(id) {
+  const c = S.cats.find(x => x.id == id), n = S.prods.filter(p => p.categoria_id == id).length;
+  if (!confirm('Excluir a categoria "' + c.nome + '"' + (n ? ' e os ' + n + ' produtos dela' : '') + '?')) return;
+  if (n) { const r = await sb.from('produtos').update({ativo: false}).eq('categoria_id', id); if (r.error) return alert(r.error.message); }
+  run(sb.from('categorias').delete().eq('id', id));
 }
 async function run(q) { const {error} = await q; error ? alert(error.message) : carregar(); }
 const addLoja = () => { const n = $('#nl').value.trim(); if (n) run(sb.from('lojas').insert({nome: n})); };
@@ -287,6 +425,7 @@ function salvarCat() {
   if (!nome) return alert('Digite o nome da categoria.');
   const dia = id => $(id).value === '' ? null : +$(id).value;
   const o = {nome, fornecedor: $('#nf').value.trim() || null, dia_pedido: dia('#dp'), dia_entrega: dia('#de')};
+  if (!S.cats.length || 'tipo' in S.cats[0]) o.tipo = $('#tp').value;
   const id = S.editCat?.id; S.editCat = null;
   run(id ? sb.from('categorias').update(o).eq('id', id) : sb.from('categorias').insert(o));
 }
