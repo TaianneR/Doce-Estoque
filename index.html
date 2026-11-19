@@ -21,7 +21,7 @@ body{margin:0;font-family:'Century Gothic',CenturyGothic,AppleGothic,Questrial,s
 header{background:#fff;color:var(--choc);padding:8px 12px;position:sticky;top:0;z-index:5;display:flex;gap:8px;align-items:center;border-bottom:3px solid var(--roxo)}
 header img{height:58px;width:auto}
 header select{flex:1;min-width:0;border:1.5px solid var(--pist2)}
-.logo-login{display:block;margin:30px auto 0;width:280px;max-width:85%}
+.logo-login{display:block;margin:34px auto 0;width:210px;max-width:70%}
 main{padding:6px 14px 20px;max-width:680px;margin:auto}
 input,select,button{font:inherit;padding:11px 12px;border-radius:12px;border:1.5px solid #c9d8bd;background:#fff;color:var(--choc);width:100%}
 button{background:var(--fram);color:#fff;border:0;cursor:pointer;width:auto}
@@ -55,6 +55,23 @@ label{font-size:14px;color:var(--cinza)}
 nav button{flex:1;min-width:0;background:none;color:var(--cinza);border-radius:0;padding:9px 0;font-size:11px;line-height:1.3}
 nav button.on{color:var(--roxo);box-shadow:inset 0 3px 0 var(--roxo)}
 .vazio{padding:30px 6px;text-align:center;color:var(--cinza)}
+.item2{padding:9px 0;border-bottom:1px solid #d3e2c8}
+.l1{display:flex;align-items:center;gap:10px}
+.l1 button{width:46px;height:46px;padding:0;font-size:26px;line-height:1}
+.l2{display:flex;align-items:center;gap:8px;margin-top:7px;justify-content:flex-end}
+.l2 span{flex:1;color:var(--cinza);font-size:14px}
+.l2 button{height:38px;padding:0 14px;font-size:16px}
+.l2 .mais{background:var(--fram2);color:var(--fram)}
+.l2.on{background:var(--fram2);border-radius:12px;padding:4px 6px}
+.l2.on span{color:var(--fram)}
+.l2 b{min-width:28px;text-align:center;font-size:19px}
+.item2.baixo .nome{color:var(--alerta)}
+.item2.baixo .qtd{background:var(--alerta);color:#fff}
+.pedbox{background:#fff;border:2px solid var(--fram);border-radius:16px;padding:14px;margin:26px 0 10px}
+.pedbox h3{color:var(--fram)}
+.pedbox .it{display:flex;gap:8px;padding:5px 0;border-bottom:1px solid var(--pist)}
+.pedbox .it span{flex:1}
+.pedbox .big{width:100%;margin-top:12px;padding:15px;font-size:18px}
 </style>
 </head>
 <body>
@@ -72,11 +89,11 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const R = v => Number(v || 0).toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
-const S = {lojas:[], cats:[], prods:[], est:{}, hist:[], cons:{}, pedidos:[], papel:null, loja:null, aba:'estoque', edit:null, editCat:null, nome:'', sel:new Set(), busca:'', fcat:'', vis:[]};
+const S = {cart:{}, lojas:[], cats:[], prods:[], est:{}, hist:[], cons:{}, pedidos:[], papel:null, loja:null, aba:'estoque', edit:null, editCat:null, nome:'', sel:new Set(), busca:'', fcat:'', vis:[]};
 const ABAS = {
-  dona: [['estoque','📦<br>Estoque'],['pedido','🛒<br>Pedido'],['sorv','🍦<br>Sorvetes'],['prev','⏳<br>Previsão'],['hist','🕘<br>Histórico'],['cad','⚙️<br>Cadastro']],
-  dono: [['estoque','📦<br>Estoque'],['pedido','🛒<br>Pedido'],['sorv','🍦<br>Sorvetes'],['prev','⏳<br>Previsão'],['hist','🕘<br>Histórico']],
-  colaboradora: [['estoque','📦<br>Estoque']]
+  dona: [['estoque','📦<br>Estoque'],['sorv','🍦<br>Sorvetes'],['pedidos','🧾<br>Pedidos'],['prev','⏳<br>Previsão'],['cad','⚙️<br>Cadastro']],
+  dono: [['estoque','📦<br>Estoque'],['sorv','🍦<br>Sorvetes'],['pedidos','🧾<br>Pedidos'],['prev','⏳<br>Previsão']],
+  colaboradora: [['estoque','📦<br>Estoque'],['sorv','🍦<br>Sorvetes']]
 };
 const CATS = () => S.cats.concat([{id:null, nome:'Sem categoria'}]);
 const qtd = (l, p) => S.est[l + '_' + p] || 0;
@@ -106,7 +123,8 @@ async function carregar() {
     sb.from('perfis').select('*').maybeSingle(),
     sb.from('movimentos').select('delta,usuario,criado_em,lojas(nome),produtos(nome)').order('criado_em', {ascending:false}).limit(100),
     sb.from('v_consumo').select('*'),
-    sb.from('pedidos').select('id,loja_id,categoria_id,valor,itens,usuario,criado_em,lojas(nome),categorias(nome)').order('criado_em', {ascending:false}).limit(60)
+    sb.from('pedidos').select('id,loja_id,categoria_id,valor,itens,usuario,emitido_por,criado_em,lojas(nome),categorias(nome,fornecedor)').order('criado_em', {ascending:false}).limit(120),
+    sb.from('carrinho').select('*')
   ]);
   const err = r.slice(0, 4).find(x => x.error);
   if (err) return alert('Erro ao carregar: ' + err.error.message);
@@ -120,6 +138,9 @@ async function carregar() {
   S.cons = {};
   (r[6].data || []).forEach(x => S.cons[x.loja_id + '_' + x.produto_id] = {saida: Number(x.saida || 0), dias: Number(x.dias || 1)});
   S.pedidos = r[7].data || [];
+  S.cart = {};
+  (r[8].data || []).forEach(x => S.cart[x.loja_id + '_' + x.produto_id] = Number(x.qtd));
+  if (r[8].error) alert('Falta rodar a atualização 3 no banco (atualizacao-3.sql).');
   if (!S.lojas.find(l => l.id == S.loja)) S.loja = S.lojas[0]?.id ?? null;
   render();
 }
@@ -136,37 +157,93 @@ function render() {
   $('#h').innerHTML = `<img src="${LOGO}" alt="Doce Estoque">
     <select aria-label="Loja" onchange="S.loja=+this.value;render()">${S.lojas.map(l => `<option value="${l.id}" ${l.id == S.loja ? 'selected' : ''}>${esc(l.nome)}</option>`).join('')}</select>
     <button class="sec" onclick="sair()">Sair</button>`;
-  $('#n').innerHTML = abas.map(([k, t]) => `<button class="${S.aba == k ? 'on' : ''}" onclick="S.aba='${k}';render();scrollTo(0,0)">${t}</button>`).join('');
-  $('#m').innerHTML = {estoque: vEstoque, pedido: vPedido, sorv: vSorv, prev: vPrev, hist: vHist, cad: vCad}[S.aba]();
+  $('#n').innerHTML = abas.map(([k, t]) => `<button class="${S.aba == k ? 'on' : ''}" onclick="S.aba='${k}';S.busca='';render();scrollTo(0,0)">${t}</button>`).join('');
+  $('#m').innerHTML = {estoque: () => vLista('geral'), sorv: () => vLista('sorvete'), pedidos: vPedidos, prev: vPrev, cad: vCad}[S.aba]();
 }
 
-/* ---------- Estoque ---------- */
-function vEstoque() {
-  if (!S.loja) return '<div class="vazio">Nenhuma loja cadastrada ainda.</div>';
-  const pode = S.papel != 'dono', ver = S.papel != 'colaboradora';
-  const h = CATS().map(c => {
-    const ps = S.prods.filter(p => p.categoria_id == c.id);
+/* ---------- Estoque + Pedir ---------- */
+const tipoCat = c => c ? (c.tipo || (/^Grupo MAR/.test(c.fornecedor || '') ? 'sorvete' : 'geral')) : 'geral';
+const cartQ = (l, p) => S.cart[l + '_' + p] || 0;
+const catDe = p => S.cats.find(c => c.id == p.categoria_id) || null;
+function infoCiclo(c) {
+  const cy = c && c.id != null ? ciclo(c) : null;
+  if (!cy) return '';
+  let t = cy.dp == 0 ? '<b>Pedir hoje</b> (' + fd(cy.dataPedido) + ')' : 'Pedir até ' + fd(cy.dataPedido);
+  if (cy.dataEntrega) t += ' · entrega ' + fd(cy.dataEntrega);
+  const ult = S.pedidos.find(p => p.loja_id == S.loja && p.categoria_id == c.id);
+  if (ult) {
+    const d = new Date(ult.criado_em);
+    t += '<br>Último pedido: ' + d.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'});
+    if (d >= addDias(hoje0(), -desde(c.dia_pedido))) t += ' <span class="ok">✔ pedido deste ciclo já feito</span>';
+  }
+  return `<div class="ciclo">${t}</div>`;
+}
+const feitoNoCiclo = c => {
+  const ult = c && c.id != null && c.dia_pedido != null ? S.pedidos.find(p => p.loja_id == S.loja && p.categoria_id == c.id) : null;
+  return !!ult && new Date(ult.criado_em) >= addDias(hoje0(), -desde(c.dia_pedido));
+};
+function itemHtml(p) {
+  const q = qtd(S.loja, p.id), dr = S.papel != 'colaboradora' ? diasRest(S.loja, p.id) : null, c = cartQ(S.loja, p.id);
+  const mexe = S.papel != 'dono', ver = S.papel != 'colaboradora';
+  const baixo = p.minimo > 0 && q <= p.minimo;
+  const ped = !mexe ? (c ? `<div class="l2 on"><span>Pedir</span><b>${c} ${esc(p.unidade)}</b></div>` : '') :
+    c ? `<div class="l2 on"><span>Pedir</span><button class="sec" aria-label="Pedir menos" onclick="pedir(${p.id},-1)">−</button><b>${c}</b><button aria-label="Pedir mais" onclick="pedir(${p.id},1)">+1</button></div>`
+      : `<div class="l2"><span>${esc(p.unidade)}</span><button class="mais" onclick="pedir(${p.id},1)">+1 pedir</button></div>`;
+  return `<div class="item2 ${baixo ? 'baixo' : ''}"><div class="l1">
+      <div class="nome">${esc(p.nome)}<small>${ver ? R(p.preco) + ' · ' : ''}${esc(p.unidade)}${p.minimo > 0 ? ' · mínimo ' + p.minimo : ''}${dr != null && dr <= 5 ? ' · acaba em ' + fmtDias(dr) : ''}</small></div>
+      ${mexe ? `<button class="sec" aria-label="Dar baixa" onclick="aj(${p.id},-1)">−</button>` : ''}
+      <div class="qtd" ${mexe ? `title="Toque para contar o estoque" onclick="ajExato(${p.id})"` : ''}>${q}</div>
+      ${mexe ? `<button aria-label="Entrada" onclick="aj(${p.id},1)">+</button>` : ''}</div>${ped}</div>`;
+}
+function listaItens(tipo) {
+  const b = (S.busca || '').toLowerCase().trim();
+  const h = CATS().filter(c => tipoCat(c) == tipo).map(c => {
+    const ps = S.prods.filter(p => p.categoria_id == c.id && (!b || p.nome.toLowerCase().includes(b)));
     if (!ps.length) return '';
-    return `<div class="cat">${esc(c.nome)}</div>` + ps.map(p => {
-      const q = qtd(S.loja, p.id), dr = ver ? diasRest(S.loja, p.id) : null;
-      return `<div class="item ${q <= p.minimo ? 'baixo' : ''}">
-        <div class="nome">${esc(p.nome)}<small>${ver ? R(p.preco) + ' · ' : ''}${esc(p.unidade)} · mínimo ${p.minimo}${dr != null && dr <= 5 ? ' · acaba em ' + fmtDias(dr) : ''}</small></div>
-        ${pode ? `<button class="sec" aria-label="Dar baixa" onclick="aj(${p.id},-1)">−</button>` : ''}
-        <div class="qtd" ${pode ? `title="Toque para contar o estoque" onclick="ajExato(${p.id})"` : ''}>${q}</div>
-        ${pode ? `<button aria-label="Entrada" onclick="aj(${p.id},1)">+</button>` : ''}</div>`;
-    }).join('');
+    return `<div class="cat">${esc(c.nome)}${c.fornecedor ? ' <small>' + esc(c.fornecedor) + '</small>' : ''}</div>` + (b ? '' : infoCiclo(c)) + ps.map(itemHtml).join('');
   }).join('');
-  return h || '<div class="vazio">Nenhum produto cadastrado ainda.</div>';
+  return (h || '<div class="vazio">Nenhum produto aqui.</div>') + caixaPedido(tipo);
 }
-
-function vHist() {
-  const f = d => new Date(d).toLocaleString('pt-BR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
-  const ped = S.pedidos.map(p => `<details class="ped"><summary>${f(p.criado_em)} · ${esc(p.categorias?.nome || 'Sem categoria')} · ${esc(p.lojas?.nome)}<b>${R(p.valor)}</b></summary>
-    <div>por ${esc((p.usuario || '').split('@')[0])}<br>${(p.itens || []).map(i => esc(i.produto) + ': ' + i.qtd + ' ' + esc(i.unidade)).join('<br>')}</div></details>`).join('');
-  return '<h3 style="margin-top:16px">Pedidos registrados</h3>' + (ped || '<div class="vazio">Nenhum pedido registrado ainda.</div>') +
-    '<h3 style="margin-top:22px">Últimas movimentações</h3>' + (S.hist.map(m =>
-    `<div class="item"><div class="nome">${esc(m.produtos?.nome)}<small>${esc(m.lojas?.nome)} · ${esc((m.usuario || '').split('@')[0])} · ${f(m.criado_em)}</small></div><b>${m.delta > 0 ? '+' : ''}${m.delta}</b></div>`).join('')
-    || '<div class="vazio">Nenhuma movimentação ainda.</div>');
+function cartItens(tipo) {
+  return S.prods.filter(p => tipoCat(catDe(p)) == tipo && cartQ(S.loja, p.id) > 0).map(p => ({p, n: cartQ(S.loja, p.id), c: catDe(p)}));
+}
+function caixaPedido(tipo) {
+  const it = cartItens(tipo), ver = S.papel != 'colaboradora';
+  const tot = it.reduce((a, x) => a + x.n * x.p.preco, 0);
+  const lista = it.length ? it.map(x => `<div class="it"><span>${esc(x.p.nome)}</span><b>${x.n} ${esc(x.p.unidade)}</b></div>`).join('') : '<div class="vazio" style="padding:14px 0">Nada marcado ainda.<br>Toque em <b>+1 pedir</b> nos itens acima.</div>';
+  const dona = S.papel == 'dona';
+  return `<div class="pedbox"><h3>Pedido a gerar · ${tipo == 'sorvete' ? 'sorvetes' : 'demais itens'}</h3>${lista}
+    ${it.length && ver ? `<div class="it" style="border:0"><span><b>Total estimado</b></span><b>${R(tot)}</b></div>` : ''}
+    ${it.length && dona ? `<button class="big" onclick="gerarPedido('${tipo}')">Gerar pedido</button>` : ''}
+    ${it.length && S.papel != 'dono' ? `<div class="acoes"><button class="sec" onclick="copiar('${tipo}')">Copiar texto</button>${dona ? `<button class="sec" onclick="limparCart('${tipo}')">Limpar lista</button>` : ''}</div>` : ''}
+    ${it.length && S.papel == 'colaboradora' ? '<div class="ciclo">A Taianne gera o pedido a partir desta lista.</div>' : ''}</div>`;
+}
+function vLista(tipo) {
+  if (!S.loja) return '<div class="vazio">Nenhuma loja cadastrada ainda.</div>';
+  return `<div class="box" style="margin-top:12px"><input id="bq" type="search" placeholder="Buscar produto" value="${esc(S.busca)}" oninput="busca('${tipo}')"></div><div id="lst">${listaItens(tipo)}</div>`;
+}
+function busca(tipo) { S.busca = $('#bq').value; $('#lst').innerHTML = listaItens(tipo); }
+function refrescar() { if ($('#bq')) { const t = S.aba == 'sorv' ? 'sorvete' : 'geral'; $('#lst').innerHTML = listaItens(t); } else render(); }
+async function pedir(pid, d) {
+  const k = S.loja + '_' + pid, ant = cartQ(S.loja, pid);
+  if (ant + d < 0) return;
+  if (ant + d == 0) delete S.cart[k]; else S.cart[k] = ant + d;
+  refrescar();
+  const {error} = await sb.rpc('ajustar_carrinho', {p_loja: S.loja, p_produto: pid, p_delta: d});
+  if (error) { ant ? S.cart[k] = ant : delete S.cart[k]; refrescar(); alert('Não salvou: ' + error.message + '\n(Você rodou a atualização 3?)'); }
+}
+async function limparCart(tipo) {
+  const ids = cartItens(tipo).map(x => x.p.id);
+  if (!ids.length || !confirm('Limpar a lista de itens marcados?')) return;
+  const {error} = await sb.from('carrinho').delete().eq('loja_id', S.loja).in('produto_id', ids);
+  error ? alert(error.message) : carregar();
+}
+function copiar(tipo) {
+  const t = CATS().filter(c => tipoCat(c) == tipo).map(c => {
+    const xs = cartItens(tipo).filter(x => x.c == c || (x.c == null && c.id == null));
+    return xs.length ? `*${c.nome}${c.fornecedor ? ' (' + c.fornecedor + ')' : ''}*\n` + xs.map(x => `- ${x.p.nome}: ${x.n} ${x.p.unidade}`).join('\n') : '';
+  }).filter(Boolean).join('\n\n');
+  navigator.clipboard.writeText(`Pedido ${lojaNome()}\n\n${t}`).then(() => alert('Copiado. Cole no WhatsApp.'));
 }
 
 const fmtDias = d => d < 1 ? 'menos de 1 dia' : '~' + Math.round(d) + (Math.round(d) == 1 ? ' dia' : ' dias');
@@ -185,9 +262,9 @@ function vPrev() {
 async function aj(pid, d) {
   const k = S.loja + '_' + pid, ant = qtd(S.loja, pid);
   if (ant + d < 0) return;
-  S.est[k] = ant + d; render();
+  S.est[k] = ant + d; refrescar();
   const {error} = await sb.rpc('ajustar_estoque', {p_loja: S.loja, p_produto: pid, p_delta: d});
-  if (error) { S.est[k] = ant; render(); alert('Não salvou: ' + error.message); }
+  if (error) { S.est[k] = ant; refrescar(); alert('Não salvou: ' + error.message); }
 }
 function ajExato(pid) {
   const v = prompt('Quantidade em estoque agora:', qtd(S.loja, pid));
@@ -196,45 +273,6 @@ function ajExato(pid) {
   if (d) aj(pid, d);
 }
 
-/* ---------- Pedido ---------- */
-function itensPedido() {
-  return S.prods.map(p => {
-    const q = qtd(S.loja, p.id), c = S.cats.find(c => c.id == p.categoria_id), cy = ciclo(c), dr = diasRest(S.loja, p.id);
-    return {p, q, dr, cy, falta: dr != null && cy && cy.de != null && dr < cy.de, baixo: q <= p.minimo};
-  }).filter(x => (x.baixo || x.falta) && x.p.ideal > x.q).map(x => ({...x, n: x.p.ideal - x.q}));
-}
-function infoCiclo(c) {
-  const cy = c.id != null ? ciclo(c) : null;
-  if (!cy) return '';
-  let t = cy.dp == 0 ? '<b>Pedir hoje</b> (' + fd(cy.dataPedido) + ')' : 'Pedir até ' + fd(cy.dataPedido);
-  if (cy.dataEntrega) t += ' · entrega ' + fd(cy.dataEntrega);
-  const ult = S.pedidos.find(p => p.loja_id == S.loja && p.categoria_id == c.id);
-  if (ult) {
-    const d = new Date(ult.criado_em);
-    t += '<br>Último pedido: ' + d.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'});
-    if (d >= addDias(hoje0(), -desde(c.dia_pedido))) t += ' <span class="ok">✔ pedido deste ciclo já feito</span>';
-  }
-  return `<div class="ciclo">${t}</div>`;
-}
-const tipoCat = c => c ? (c.tipo || (/^Grupo MAR/.test(c.fornecedor || '') ? 'sorvete' : 'geral')) : 'geral';
-function vPed(tipo) {
-  if (!S.loja) return '<div class="vazio">Cadastre uma loja primeiro.</div>';
-  const it = itensPedido().filter(x => tipoCat(S.cats.find(c => c.id == x.p.categoria_id)) == tipo);
-  let tot = 0;
-  const h = CATS().filter(c => tipoCat(c) == tipo).map(c => {
-    const xs = it.filter(x => x.p.categoria_id == c.id);
-    if (!xs.length) return '';
-    const sub = xs.reduce((a, x) => a + x.n * x.p.preco, 0);
-    tot += sub;
-    return `<div class="cat">${esc(c.nome)} <small>${c.fornecedor ? esc(c.fornecedor) + ' · ' : ''}${R(sub)}</small></div>` + infoCiclo(c) +
-      xs.map(x => `<div class="item ${x.falta ? 'baixo' : ''}"><div class="nome">${esc(x.p.nome)}<small>tem ${x.q}${x.dr != null ? ' · dura ' + fmtDias(x.dr) : ''} · mínimo ${x.p.minimo}</small></div><b>${x.n} ${esc(x.p.unidade)}</b></div>`).join('') +
-      `<div class="acoes"><button class="sec" onclick="copiar(${c.id})">Copiar</button><button onclick="gerarPedido('${tipo}', ${c.id})">${S.papel == 'dona' ? 'Gerar pedido' : 'Gerar PDF'}</button></div>`;
-  }).join('');
-  return `<div class="total"><small>${esc(lojaNome())} · ${tipo == 'sorvete' ? 'pedido de sorvetes' : 'estimativa do pedido'}</small>${R(tot)}</div>` +
-    (h || '<div class="vazio">Nada para pedir agora. 🎉</div>') +
-    `<div class="acoes"><button onclick="gerarPedido('${tipo}')">${S.papel == 'dona' ? 'Gerar pedido completo' : 'Gerar PDF completo'}</button><button class="sec" onclick="copiar(undefined,'${tipo}')">Copiar tudo</button>${tipo == 'geral' ? '<button class="sec" onclick="csv()">Exportar CSV</button>' : ''}</div>`;
-}
-const vPedido = () => vPed('geral'), vSorv = () => vPed('sorvete');
 /* PDF-INI */
 function montarPdf(J, o) {
   const doc = new J({unit: 'mm', format: 'a4'});
@@ -305,50 +343,67 @@ function montarPdf(J, o) {
   return doc;
 }
 /* PDF-FIM */
-const feitoNoCiclo = c => {
-  const ult = c.id != null && c.dia_pedido != null ? S.pedidos.find(p => p.loja_id == S.loja && p.categoria_id == c.id) : null;
-  return !!ult && new Date(ult.criado_em) >= addDias(hoje0(), -desde(c.dia_pedido));
-};
-async function gerarPedido(tipo, cid) {
+
+function abrirPdf(opts, nome) {
   const J = window.jspdf && window.jspdf.jsPDF;
-  if (!J) return alert('Não consegui carregar o gerador de PDF. Confira a internet e tente de novo.');
-  const cats = CATS().filter(c => cid === undefined ? tipoCat(c) == tipo : c.id === cid);
-  const it = itensPedido();
-  const grupos = cats.map(c => {
-    const cy = c.id != null ? ciclo(c) : null;
-    return {c, nome: c.nome, fornecedor: c.fornecedor, info: cy && cy.dataEntrega ? 'Entrega: ' + fd(cy.dataEntrega) : '',
-      itens: it.filter(x => x.p.categoria_id == c.id).map(x => ({nome: x.p.nome, qtd: x.n, un: x.p.unidade, preco: Number(x.p.preco)}))};
-  }).filter(g => g.itens.length);
-  if (!grupos.length) return alert('Não há itens para este pedido.');
-  const dona = S.papel == 'dona';
-  if (dona) {
-    const tot = grupos.reduce((a, g) => a + g.itens.reduce((b, i) => b + i.qtd * i.preco, 0), 0);
-    const jaFeito = grupos.filter(g => feitoNoCiclo(g.c)).map(g => g.nome);
-    if (!confirm('Gerar o pedido de ' + R(tot) + ' e registrar no histórico como feito hoje?' + (jaFeito.length ? '\n\nAtenção: já existe pedido registrado neste ciclo para: ' + jaFeito.join(', ') + '.' : ''))) return;
-  }
-  const d = new Date(), p2 = n => String(n).padStart(2, '0');
-  const doc = montarPdf(J, {titulo: tipo == 'sorvete' ? 'Pedido de Sorvetes' : 'Pedido de Reposição', loja: lojaNome(), usuario: S.nome || 'Usuário',
-    data: d.toLocaleDateString('pt-BR'), emitido: d.toLocaleDateString('pt-BR') + ' às ' + p2(d.getHours()) + ':' + p2(d.getMinutes()),
-    grupos, logo: typeof LOGO !== 'undefined' ? LOGO : null});
-  const nome = 'Pedido-' + (tipo == 'sorvete' ? 'Sorvetes' : 'Geral') + '-' + d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + '.pdf';
+  if (!J) { alert('Não consegui carregar o gerador de PDF. Confira a internet e tente de novo.'); return false; }
+  const doc = montarPdf(J, {...opts, logo: typeof LOGO !== 'undefined' ? LOGO : null});
   const arq = new File([doc.output('blob')], nome, {type: 'application/pdf'});
   if (navigator.canShare && navigator.canShare({files: [arq]})) navigator.share({files: [arq], title: nome}).catch(e => { if (e.name != 'AbortError') doc.save(nome); });
   else doc.save(nome);
-  if (dona) {
-    const linhas = grupos.map(g => ({loja_id: S.loja, categoria_id: g.c.id, valor: g.itens.reduce((a, i) => a + i.qtd * i.preco, 0),
-      itens: g.itens.map(i => ({produto: i.nome, qtd: i.qtd, unidade: i.un, preco: i.preco}))}));
-    const {error} = await sb.from('pedidos').insert(linhas);
-    if (error) alert('O PDF foi gerado, mas o pedido NÃO foi registrado no histórico: ' + error.message + '\n(Você rodou a atualização do banco?)');
-    else carregar();
-  }
+  return true;
 }
-function copiar(cid, tipo) {
-  const it = itensPedido();
-  const t = CATS().filter(c => cid === undefined ? (!tipo || tipoCat(c) == tipo) : c.id === cid).map(c => {
-    const xs = it.filter(x => x.p.categoria_id == c.id);
-    return xs.length ? `*${c.nome}${c.fornecedor ? ' (' + c.fornecedor + ')' : ''}*\n` + xs.map(x => `- ${x.p.nome}: ${x.n} ${x.p.unidade}`).join('\n') : '';
-  }).filter(Boolean).join('\n\n');
-  navigator.clipboard.writeText(`Pedido ${lojaNome()}\n\n${t}`).then(() => alert('Pedido copiado. Cole no WhatsApp.'));
+const p2 = n => String(n).padStart(2, '0');
+const dataHora = d => d.toLocaleDateString('pt-BR') + ' às ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+async function gerarPedido(tipo) {
+  const it = cartItens(tipo);
+  if (!it.length) return alert('Marque os itens que quer pedir.');
+  const cats = [...new Set(it.map(x => x.c))];
+  const grupos = cats.map(c => {
+    const cy = c && c.id != null ? ciclo(c) : null;
+    return {c, nome: c ? c.nome : 'Sem categoria', fornecedor: c?.fornecedor, info: cy && cy.dataEntrega ? 'Entrega: ' + fd(cy.dataEntrega) : '',
+      itens: it.filter(x => x.c == c).map(x => ({nome: x.p.nome, qtd: x.n, un: x.p.unidade, preco: Number(x.p.preco), pid: x.p.id}))};
+  });
+  const tot = grupos.reduce((a, g) => a + g.itens.reduce((b, i) => b + i.qtd * i.preco, 0), 0);
+  const jaFeito = grupos.filter(g => feitoNoCiclo(g.c)).map(g => g.nome);
+  if (!confirm('Gerar o pedido de ' + R(tot) + '?\nEle vai para a aba Pedidos e a lista é zerada.' + (jaFeito.length ? '\n\nAtenção: já existe pedido neste ciclo para: ' + jaFeito.join(', ') + '.' : ''))) return;
+  const d = new Date();
+  const nome = 'Pedido-' + (tipo == 'sorvete' ? 'Sorvetes' : 'Geral') + '-' + d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + '.pdf';
+  const ok = abrirPdf({titulo: tipo == 'sorvete' ? 'Pedido de Sorvetes' : 'Pedido de Reposição', loja: lojaNome(), usuario: S.nome || 'Usuário',
+    data: d.toLocaleDateString('pt-BR'), emitido: dataHora(d), grupos}, nome);
+  if (!ok) return;
+  const linhas = grupos.map(g => ({loja_id: S.loja, categoria_id: g.c ? g.c.id : null, valor: g.itens.reduce((a, i) => a + i.qtd * i.preco, 0), emitido_por: S.nome || null,
+    itens: g.itens.map(i => ({produto: i.nome, qtd: i.qtd, unidade: i.un, preco: i.preco}))}));
+  const r1 = await sb.from('pedidos').insert(linhas);
+  if (r1.error) return alert('O PDF foi gerado, mas o pedido NÃO foi registrado: ' + r1.error.message + '\n(Você rodou a atualização 3?)');
+  await sb.from('carrinho').delete().eq('loja_id', S.loja).in('produto_id', it.map(x => x.p.id));
+  S.aba = 'pedidos';
+  carregar();
+}
+function reimprimir(i) {
+  const g = S.pedidosAg[i];
+  const d = new Date(g.t);
+  abrirPdf({titulo: 'Pedido', loja: g.loja, usuario: g.por, data: d.toLocaleDateString('pt-BR'), emitido: dataHora(d),
+    grupos: g.rows.map(r => ({nome: r.categorias?.nome || 'Sem categoria', fornecedor: r.categorias?.fornecedor, info: '',
+      itens: (r.itens || []).map(x => ({nome: x.produto, qtd: x.qtd, un: x.unidade, preco: Number(x.preco || 0)}))}))},
+    'Pedido-' + d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + '.pdf');
+}
+function vPedidos() {
+  const f = d => new Date(d).toLocaleString('pt-BR', {day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit'});
+  const m = new Map();
+  S.pedidos.forEach(p => {
+    const k = p.loja_id + '|' + p.criado_em;
+    if (!m.has(k)) m.set(k, {t: p.criado_em, loja: p.lojas?.nome || '', por: p.emitido_por || (p.usuario || '').split('@')[0], rows: [], valor: 0});
+    const g = m.get(k); g.rows.push(p); g.valor += Number(p.valor || 0);
+  });
+  S.pedidosAg = [...m.values()];
+  const ped = S.pedidosAg.map((g, i) => `<details class="ped"><summary>${f(g.t)} · ${esc(g.loja)}<b>${S.papel == 'colaboradora' ? '' : R(g.valor)}</b><br><small style="color:var(--cinza)">${g.rows.map(r => esc(r.categorias?.nome || 'Sem categoria')).join(', ')} · por ${esc(g.por)}</small></summary>
+    <div>${g.rows.map(r => '<b style="float:none;color:var(--choc)">' + esc(r.categorias?.nome || 'Sem categoria') + '</b><br>' + (r.itens || []).map(x => esc(x.produto) + ': ' + x.qtd + ' ' + esc(x.unidade)).join('<br>')).join('<br><br>')}
+    <div style="padding:10px 0 0"><button onclick="reimprimir(${i})">Baixar PDF</button></div></div></details>`).join('');
+  return '<h3 style="margin-top:16px">Pedidos gerados</h3>' + (ped || '<div class="vazio">Nenhum pedido gerado ainda.<br>Marque itens com <b>+1 pedir</b> em Estoque ou Sorvetes e toque em <b>Gerar pedido</b>.</div>') +
+    '<h3 style="margin-top:22px">Últimas movimentações do estoque</h3>' + (S.hist.map(m =>
+    `<div class="item"><div class="nome">${esc(m.produtos?.nome)}<small>${esc(m.lojas?.nome)} · ${esc((m.usuario || '').split('@')[0])} · ${f(m.criado_em)}</small></div><b>${m.delta > 0 ? '+' : ''}${m.delta}</b></div>`).join('')
+    || '<div class="vazio">Nenhuma movimentação ainda.</div>');
 }
 async function csv() {
   const {data, error} = await sb.from('v_estoque').select('*');
@@ -379,7 +434,7 @@ function vCad() {
     <div class="box"><h3>Categorias e fornecedores</h3>${S.cats.map(c => `<div class="item"><div class="nome">${esc(c.nome)}<small>${c.fornecedor ? esc(c.fornecedor) + ' · ' : ''}${tipoCat(c) == 'sorvete' ? 'aba Sorvetes · ' : ''}${c.dia_pedido != null ? 'pedido ' + DS[c.dia_pedido] : 'sem dia de pedido'}${c.dia_entrega != null ? ' · entrega ' + DS[c.dia_entrega] : ''}</small></div><button class="sec" aria-label="Editar categoria" onclick="editarCat(${c.id})">✎</button><button class="sec" aria-label="Excluir categoria" onclick="removerCat(${c.id})">🗑</button></div>`).join('') || 'Nenhuma ainda'}
       <h3 style="margin-top:10px">${ec.id ? 'Editar categoria' : 'Nova categoria'}</h3>
       <div class="row"><input id="nc" placeholder="Categoria" value="${esc(ec.nome)}"><input id="nf" placeholder="Fornecedor" value="${esc(ec.fornecedor)}"></div>
-      <label>Em qual aba entra o pedido?</label><select id="tp"><option value="geral">Pedido (demais itens)</option><option value="sorvete" ${ec.id && tipoCat(ec) == 'sorvete' ? 'selected' : ''}>Sorvetes, picolés e açaí</option></select>
+      <label>Em qual aba entra o pedido?</label><select id="tp"><option value="geral">Estoque (demais itens)</option><option value="sorvete" ${ec.id && tipoCat(ec) == 'sorvete' ? 'selected' : ''}>Sorvetes, picolés e açaí</option></select>
       <label>Dia de enviar o pedido</label><select id="dp">${optDia(ec.dia_pedido)}</select>
       <label>Dia da entrega</label><select id="de">${optDia(ec.dia_entrega)}</select>
       <div class="row"><button onclick="salvarCat()">Salvar categoria</button>${ec.id ? '<button class="sec" onclick="S.editCat=null;render()">Cancelar</button>' : ''}</div></div>
