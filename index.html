@@ -92,8 +92,8 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const R = v => Number(v || 0).toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
 const S = {ed:new Set(), cart:{}, lojas:[], cats:[], prods:[], est:{}, hist:[], cons:{}, pedidos:[], papel:null, loja:null, aba:'estoque', edit:null, editCat:null, nome:'', sel:new Set(), busca:'', fcat:'', vis:[]};
 const ABAS = {
-  dona: [['estoque','📦<br>Estoque'],['sorv','🍦<br>Sorvetes'],['pedidos','🧾<br>Pedidos'],['prev','⏳<br>Previsão'],['cad','⚙️<br>Cadastro']],
-  dono: [['estoque','📦<br>Estoque'],['sorv','🍦<br>Sorvetes'],['pedidos','🧾<br>Pedidos'],['prev','⏳<br>Previsão']],
+  dona: [['estoque','📦<br>Estoque'],['sorv','🍦<br>Sorvetes'],['pedidos','🧾<br>Pedidos'],['mov','📋<br>Movimentos'],['prev','⏳<br>Previsão'],['cad','⚙️<br>Cadastro']],
+  dono: [['estoque','📦<br>Estoque'],['sorv','🍦<br>Sorvetes'],['pedidos','🧾<br>Pedidos'],['mov','📋<br>Movimentos'],['prev','⏳<br>Previsão']],
   colaboradora: [['estoque','📦<br>Estoque'],['sorv','🍦<br>Sorvetes']]
 };
 const CATS = () => S.cats.concat([{id:null, nome:'Sem categoria'}]);
@@ -122,7 +122,7 @@ async function carregar() {
     sb.from('produtos').select('*').eq('ativo', true).order('nome'),
     sb.from('estoque').select('*'),
     sb.from('perfis').select('*').maybeSingle(),
-    sb.from('movimentos').select('delta,usuario,criado_em,lojas(nome),produtos(nome)').order('criado_em', {ascending:false}).limit(100),
+    sb.from('movimentos').select('id,delta,usuario,criado_em,lojas(nome),produtos(nome,unidade)').order('criado_em', {ascending:false}).limit(300),
     sb.from('v_consumo').select('*'),
     sb.from('pedidos').select('id,loja_id,categoria_id,valor,itens,usuario,emitido_por,criado_em,lojas(nome),categorias(nome)').order('criado_em', {ascending:false}).limit(120),
     sb.from('carrinho').select('*')
@@ -159,7 +159,7 @@ function render() {
     <select aria-label="Loja" onchange="S.loja=+this.value;render()">${S.lojas.map(l => `<option value="${l.id}" ${l.id == S.loja ? 'selected' : ''}>${esc(l.nome)}</option>`).join('')}</select>
     <button class="sec" onclick="sair()">Sair</button>`;
   $('#n').innerHTML = abas.map(([k, t]) => `<button class="${S.aba == k ? 'on' : ''}" onclick="S.aba='${k}';S.busca='';render();scrollTo(0,0)">${t}</button>`).join('');
-  $('#m').innerHTML = {estoque: () => vLista('geral'), sorv: () => vLista('sorvete'), pedidos: vPedidos, prev: vPrev, cad: vCad}[S.aba]();
+  $('#m').innerHTML = {estoque: () => vLista('geral'), sorv: () => vLista('sorvete'), pedidos: vPedidos, mov: vMov, prev: vPrev, cad: vCad}[S.aba]();
 }
 
 /* ---------- Estoque + Pedir ---------- */
@@ -396,21 +396,46 @@ function vPedidos() {
     <details><summary>Ver itens (valor é estimativa)</summary><div>${g.rows.map(r => '<b style="color:var(--choc)">' + esc(r.categorias?.nome || 'Sem categoria') + '</b><br>' + (r.itens || []).map(x => esc(x.produto) + ': ' + x.qtd + ' ' + esc(x.unidade)).join('<br>')).join('<br><br>')}</div></details>
     <div class="acoes"><button onclick="pdfPedido(${i})">Baixar PDF</button>${dona ? `<button class="sec" onclick="excluirPedido(${i})">Excluir</button>` : ''}</div></div>`).join('');
   return '<h3 style="margin-top:16px">Pedidos gerados</h3>' + (ped || '<div class="vazio">Nenhum pedido gerado ainda.<br>Marque itens em <b>Pedir</b> e toque em <b>Gerar pedido</b> no fim da página.</div>') +
-    (dona && ped ? '<div class="acoes"><button class="sec" onclick="excluirTodos()">Excluir todos os pedidos</button></div>' : '') +
-    '<h3 style="margin-top:22px">Últimas movimentações do estoque</h3>' + (S.hist.map(m =>
-    `<div class="item"><div class="nome">${esc(m.produtos?.nome)}<small>${esc(m.lojas?.nome)} · ${esc((m.usuario || '').split('@')[0])} · ${f(m.criado_em)}</small></div><b>${m.delta > 0 ? '+' : ''}${m.delta}</b></div>`).join('')
-    || '<div class="vazio">Nenhuma movimentação ainda.</div>');
+    (dona && ped ? '<div class="acoes"><button class="sec" onclick="excluirTodos()">Excluir todos os pedidos</button></div>' : '');
 }
-async function csv() {
-  const {data, error} = await sb.from('v_estoque').select('*');
+
+function vMov() {
+  const dona = S.papel == 'dona';
+  const nm = u => { const n = (u || '').split('@')[0]; return n.charAt(0).toUpperCase() + n.slice(1); };
+  let dia = '';
+  const h = S.hist.map(m => {
+    const d = new Date(m.criado_em), dd = d.toLocaleDateString('pt-BR', {weekday:'long', day:'2-digit', month:'2-digit'});
+    const cab = dd != dia ? `<div class="cat" style="font-size:16px;text-transform:capitalize">${dd}</div>` : '';
+    dia = dd;
+    const sai = m.delta < 0, n = Math.abs(m.delta);
+    return cab + `<div class="item"><div class="nome">${esc(m.produtos?.nome)}<small>${nm(m.usuario)} ${sai ? 'deu baixa de' : 'lançou entrada de'} ${n} · ${esc(m.lojas?.nome)} · ${p2(d.getHours())}:${p2(d.getMinutes())}</small></div>
+      <b class="${sai ? '' : 'ok'}">${sai ? '−' : '+'}${n}</b>${dona ? `<button class="sec" aria-label="Excluir registro" onclick="excluirMov(${m.id})">🗑</button>` : ''}</div>`;
+  }).join('');
+  return '<h3 style="margin-top:16px">Movimentos do estoque</h3><div class="ciclo">Quem deu baixa ou entrada, e quando. Excluir o registro não muda o estoque.</div>' +
+    (h || '<div class="vazio">Nenhuma movimentação ainda.</div>') +
+    (dona && h ? '<div class="acoes"><button class="sec" onclick="excluirMovs()">Excluir todos os registros</button></div>' : '');
+}
+async function excluirMov(id) {
+  if (!confirm('Excluir este registro? O estoque não muda.')) return;
+  const {error} = await sb.from('movimentos').delete().eq('id', id);
+  error ? alert(error.message + '\n(Você rodou a atualização 6?)') : carregar();
+}
+async function excluirMovs() {
+  const ids = S.hist.map(m => m.id);
+  if (!ids.length || !confirm('Excluir TODOS os ' + ids.length + ' registros mostrados? O estoque não muda. Não dá para desfazer.')) return;
+  const {error} = await sb.from('movimentos').delete().in('id', ids);
+  error ? alert(error.message + '\n(Você rodou a atualização 6?)') : carregar();
+}
+async function csv(vista, arquivo) {
+  const {data, error} = await sb.from(vista).select('*');
   if (error) return alert(error.message);
   if (!data.length) return alert('Nada para exportar ainda.');
   const cols = Object.keys(data[0]);
   const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-  const txt = '\ufeff' + [cols.join(';')].concat(data.map(r => cols.map(c => q(r[c])).join(';'))).join('\n');
+  const txt = '\ufeff' + [cols.join(';')].concat(data.map(r => cols.map(c => q(typeof r[c] == 'object' && r[c] ? JSON.stringify(r[c]) : r[c])).join(';'))).join('\n');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([txt], {type: 'text/csv;charset=utf-8'}));
-  a.download = 'estoque.csv'; a.click();
+  a.download = arquivo + '.csv'; a.click();
 }
 
 /* ---------- Cadastro ---------- */
@@ -425,7 +450,8 @@ function listaProd() {
 function vCad() {
   const e = S.edit || {}, ec = S.editCat || {};
   const optDia = v => '<option value="">Não definido</option>' + DIAS.map((d, i) => `<option value="${i}" ${v != null && v == i ? 'selected' : ''}>${d}</option>`).join('');
-  return `<div class="box"><h3>Lojas</h3>${S.lojas.map(l => `<div class="item"><div class="nome">${esc(l.nome)}</div><button class="sec" aria-label="Excluir loja" onclick="removerLoja(${l.id})">🗑</button></div>`).join('') || 'Nenhuma ainda'}
+  return `<div class="box"><h3>Exportar para o Power BI</h3><div class="ciclo">Baixa uma planilha CSV (abre no Excel e no Power BI).</div><div class="acoes" style="margin:0"><button class="sec" onclick="csv('v_estoque','estoque')">Estoque</button><button class="sec" onclick="csv('v_pedidos','pedidos')">Pedidos</button><button class="sec" onclick="csv('v_consumo','consumo')">Consumo</button></div></div>
+    <div class="box"><h3>Lojas</h3>${S.lojas.map(l => `<div class="item"><div class="nome">${esc(l.nome)}</div><button class="sec" aria-label="Excluir loja" onclick="removerLoja(${l.id})">🗑</button></div>`).join('') || 'Nenhuma ainda'}
       <div class="row"><input id="nl" placeholder="Nome da loja"><button onclick="addLoja()">Adicionar</button></div></div>
     <div class="box"><h3>Categorias</h3>${S.cats.map(c => `<div class="item"><div class="nome">${esc(c.nome)}<small>${tipoCat(c) == 'sorvete' ? 'aba Sorvetes · ' : ''}${c.dia_pedido != null ? 'pedido ' + DS[c.dia_pedido] : 'sem dia de pedido'}${c.dia_entrega != null ? ' · entrega ' + DS[c.dia_entrega] : ''}</small></div><button class="sec" aria-label="Editar categoria" onclick="editarCat(${c.id})">✎</button><button class="sec" aria-label="Excluir categoria" onclick="removerCat(${c.id})">🗑</button></div>`).join('') || 'Nenhuma ainda'}
       <h3 style="margin-top:10px">${ec.id ? 'Editar categoria' : 'Nova categoria'}</h3>
@@ -510,5 +536,3 @@ sb.auth.getSession().then(({data}) => data.session ? carregar() : telaLogin());
 </script>
 </body>
 </html>
-
-  
