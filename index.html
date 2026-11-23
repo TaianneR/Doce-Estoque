@@ -239,7 +239,7 @@ function caixaPedido(tipo) {
   return `<div class="pedbox"><h3>Pedido a gerar</h3>${blocos}
     ${ver ? `<div class="ciclo" style="margin-top:10px">Estimativa total pela média de preços: <b>${R(tot)}</b> (não vai no PDF)</div>` : ''}
     ${dona ? `<button class="big" onclick="gerarPedido('${tipo}')">${multi ? 'Gerar pedido total' : 'Gerar pedido de ' + gs[0].a.n}</button>` : ''}
-    ${S.papel != 'dono' ? `<div class="acoes"><button class="sec" onclick="copiar('${tipo}')">Copiar texto</button>${dona ? `<button class="sec" onclick="limparCart('${tipo}')">Limpar lista</button>` : ''}</div>` : ''}
+    <div class="acoes"><button class="sec" onclick="pdfLista('${tipo}')">Salvar PDF da lista</button>${S.papel != 'dono' ? `<button class="sec" onclick="copiar('${tipo}')">Copiar texto</button>` : ''}${dona ? `<button class="sec" onclick="limparCart('${tipo}')">Limpar lista</button>` : ''}</div>
     ${S.papel == 'colaboradora' ? '<div class="ciclo">A Taianne gera o pedido a partir desta lista.</div>' : ''}</div>`;
 }
 function listaItens(tipo) {
@@ -274,6 +274,16 @@ async function setCart(pid, delta) {
   refrescar();
   const {error} = await sb.rpc('ajustar_carrinho', {p_loja: S.loja, p_produto: pid, p_delta: novo - ant, p_token: tk});
   if (error) { ant ? S.cart[k] = ant : delete S.cart[k]; refrescar(); perdeuSessao(error); alert('Não salvou: ' + error.message); }
+}
+function pdfLista(tipo) {
+  const it = cartItens(tipo);
+  if (!it.length) return alert('Marque os itens que quer pedir.');
+  const ak = [...new Set(it.map(x => areaCat(x.c)))], multi = ak.length > 1;
+  const ordem = c => AREAS.findIndex(a => a.k == areaCat(c));
+  const grupos = [...new Set(it.map(x => x.c))].sort((a, b) => ordem(a) - ordem(b)).map(c => ({nome: (multi ? areaInfo(areaCat(c)).n + ' - ' : '') + (c ? c.nome : 'Sem categoria'),
+    itens: it.filter(x => x.c == c).map(x => ({nome: x.p.nome, qtd: x.n, un: x.p.unidade}))}));
+  const d = new Date();
+  abrirPdf(pdfOpts(grupos, d, lojaNome(), S.quem || S.nome, 'Lista de pedido' + (multi ? '' : ' - ' + areaInfo(ak[0]).n)), pdfNome(d, 'Lista-' + (multi ? 'Total' : slug(areaInfo(ak[0]).n)) + '-'));
 }
 async function limparCart(tipo) {
   const ids = cartItens(tipo).map(x => x.p.id);
