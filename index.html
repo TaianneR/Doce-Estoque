@@ -84,11 +84,16 @@ table.cmp{width:100%;border-collapse:collapse;font-size:14px}
 .cmp td{padding:8px 4px;border-bottom:1px solid var(--pist);text-align:right}
 .cmp td.r{color:var(--alerta)}
 .rcb{background:#2b8a3e}
+.modal{position:fixed;inset:0;background:#0007;z-index:20;display:flex;align-items:center;justify-content:center;padding:16px}
+.modal[hidden]{display:none}
+.mbox{background:#fff;border-radius:18px;padding:18px;width:100%;max-width:360px;display:grid;gap:10px}
+header #pc{white-space:nowrap}
 </style>
 </head>
 <body>
 <header id="h" hidden></header>
 <main id="m"></main>
+<div id="md" class="modal" hidden></div>
 <nav id="n" hidden></nav>
 <script>
 // >>> COLE AQUI os dados do seu projeto Supabase (Project Settings > API)
@@ -101,7 +106,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const R = v => Number(v || 0).toLocaleString('pt-BR', {style:'currency', currency:'BRL'});
-const S = {area:'all', rec:null, ed:new Set(), cart:{}, lojas:[], cats:[], prods:[], est:{}, hist:[], cons:{}, pedidos:[], papel:null, loja:null, aba:'estoque', edit:null, editCat:null, nome:'', sel:new Set(), busca:'', fcat:'', vis:[]};
+const S = {pessoas:[], tok:null, quem:'', tokAt:0, pid:null, area:'all', rec:null, ed:new Set(), cart:{}, lojas:[], cats:[], prods:[], est:{}, hist:[], cons:{}, pedidos:[], papel:null, loja:null, aba:'estoque', edit:null, editCat:null, nome:'', sel:new Set(), busca:'', fcat:'', vis:[]};
 const ABAS = {
   dona: [['estoque','📦<br>Estoque'],['sorv','🍦<br>Sorvetes'],['pedidos','🧾<br>Pedidos'],['painel','📊<br>Painel'],['mov','📋<br>Movim.'],['cad','⚙️<br>Cadastro']],
   dono: [['estoque','📦<br>Estoque'],['sorv','🍦<br>Sorvetes'],['pedidos','🧾<br>Pedidos'],['painel','📊<br>Painel'],['mov','📋<br>Movim.']],
@@ -136,7 +141,8 @@ async function carregar() {
     sb.from('movimentos').select('id,delta,usuario,criado_em,lojas(nome),produtos(nome,unidade)').eq('cancelado', false).order('criado_em', {ascending:false}).limit(300),
     sb.from('v_consumo').select('*'),
     sb.from('pedidos').select('id,loja_id,categoria_id,valor,itens,usuario,emitido_por,criado_em,area,recebido,recebido_em,recebido_por,lojas(nome),categorias(nome,area,tipo)').eq('cancelado', false).order('criado_em', {ascending:false}).limit(150),
-    sb.from('carrinho').select('*')
+    sb.from('carrinho').select('*'),
+    sb.from('pessoas').select('id,loja_id,nome,ativo').eq('ativo', true).order('nome')
   ]);
   const err = r.slice(0, 4).find(x => x.error);
   if (err) return alert('Erro ao carregar: ' + err.error.message);
@@ -151,6 +157,7 @@ async function carregar() {
   (r[6].data || []).forEach(x => S.cons[x.loja_id + '_' + x.produto_id] = {saida: Number(x.saida || 0), dias: Number(x.dias || 1)});
   S.pedidos = r[7].data || [];
   if (r[7].error || r[5].error) alert('Falta rodar a atualização 7 no banco (atualizacao-7.sql).');
+  S.pessoas = r[9].data || [];
   S.cart = {};
   (r[8].data || []).forEach(x => S.cart[x.loja_id + '_' + x.produto_id] = Number(x.qtd));
   if (r[8].error) alert('Falta rodar a atualização 3 no banco (atualizacao-3.sql).');
@@ -169,7 +176,7 @@ function render() {
   $('#h').hidden = $('#n').hidden = false;
   $('#h').innerHTML = `<img src="${LOGO}" alt="Doce Estoque">
     <select aria-label="Loja" onchange="S.loja=+this.value;render()">${S.lojas.map(l => `<option value="${l.id}" ${l.id == S.loja ? 'selected' : ''}>${esc(l.nome)}</option>`).join('')}</select>
-    <button class="sec" onclick="sair()">Sair</button>`;
+    ${S.papel == 'colaboradora' ? `<button class="sec" id="pc" onclick="trocarPessoa()">${chipTxt()}</button>` : '<button class="sec" onclick="sair()">Sair</button>'}`;
   $('#n').innerHTML = abas.map(([k, t]) => `<button class="${S.aba == k ? 'on' : ''}" onclick="S.aba='${k}';S.busca='';render();scrollTo(0,0)">${t}</button>`).join('');
   $('#m').innerHTML = {estoque: () => vLista('geral'), sorv: () => vLista('sorvete'), pedidos: vPedidos, painel: vPainel, mov: vMov, prev: vPrev, cad: vCad}[S.aba]();
 }
@@ -204,8 +211,8 @@ const feitoNoCiclo = c => {
 function itemHtml(p) {
   const q = qtd(S.loja, p.id), c = cartQ(S.loja, p.id), ver = S.papel != 'colaboradora', mexe = S.papel != 'dono';
   const dr = ver ? diasRest(S.loja, p.id) : null, baixo = p.minimo > 0 && q <= p.minimo, cor = areaInfo(areaCat(catDe(p))).c;
-  const painel = S.ed.has(p.id) ? `<div class="painel"><button class="sec" aria-label="Dar baixa" onclick="aj(${p.id},-1)">−</button><div class="qtd" onclick="ajExato(${p.id})">${q}</div><button aria-label="Entrada" onclick="aj(${p.id},1)">+</button></div>
-     <div class="ciclo" style="margin:4px 0 0">− baixa · + entrada · toque no número para contar o estoque</div>` : '';
+  const painel = S.ed.has(p.id) ? `<div class="painel"><button class="sec" aria-label="Dar baixa" onclick="aj(${p.id},-1)">−</button><div class="qtd" ${S.papel == 'dona' ? `onclick="ajExato(${p.id})"` : ''}>${q}</div><button aria-label="Entrada" onclick="aj(${p.id},1)">+</button></div>
+     <div class="ciclo" style="margin:4px 0 0">− baixa · + entrada${S.papel == 'dona' ? ' · toque no número para contar o estoque' : ''}</div>` : '';
   const pedir = mexe ? `<div class="pedir ${c ? 'on' : ''}"><span>Pedir</span><button class="sec" aria-label="Pedir menos" onclick="setCart(${p.id},-1)">−</button><b>${c}</b><button aria-label="Pedir mais" onclick="setCart(${p.id},1)">+</button></div>`
     : (c ? `<div class="pedir on"><span>Pedir</span><b>${c}</b></div>` : '');
   return `<div class="item2 ${baixo ? 'baixo' : ''}" style="border-left:5px solid ${cor};padding-left:10px"><div class="nome">${esc(p.nome)}<small>${esc(p.unidade)}${ver ? ' · média ' + R(p.preco) : ''}${p.minimo > 0 ? ' · mínimo ' + p.minimo : ''}</small></div>
@@ -259,12 +266,14 @@ function busca(tipo) { S.busca = $('#bq').value; $('#lst').innerHTML = listaIten
 function refrescar() { if ($('#bq')) $('#lst').innerHTML = listaItens(S.aba == 'sorv' ? 'sorvete' : 'geral'); else render(); }
 const ed = pid => { S.ed.has(pid) ? S.ed.delete(pid) : S.ed.add(pid); refrescar(); };
 async function setCart(pid, delta) {
+  const tk = await quem();
+  if (tk === false) return;
   const k = S.loja + '_' + pid, ant = cartQ(S.loja, pid), novo = Math.max(0, ant + delta);
   if (novo == ant) return;
   novo ? S.cart[k] = novo : delete S.cart[k];
   refrescar();
-  const {error} = await sb.rpc('ajustar_carrinho', {p_loja: S.loja, p_produto: pid, p_delta: novo - ant});
-  if (error) { ant ? S.cart[k] = ant : delete S.cart[k]; refrescar(); alert('Não salvou: ' + error.message); }
+  const {error} = await sb.rpc('ajustar_carrinho', {p_loja: S.loja, p_produto: pid, p_delta: novo - ant, p_token: tk});
+  if (error) { ant ? S.cart[k] = ant : delete S.cart[k]; refrescar(); perdeuSessao(error); alert('Não salvou: ' + error.message); }
 }
 async function limparCart(tipo) {
   const ids = cartItens(tipo).map(x => x.p.id);
@@ -295,12 +304,52 @@ function vPrev() {
   }).join('');
 }
 
+/* ---------- Quem é você? (conta fixa da loja + PIN) ---------- */
+let _pend = null;
+const chipTxt = () => S.tok ? '👤 ' + S.quem : '👤 Identificar';
+const atualizaChip = () => { const b = $('#pc'); if (b) b.textContent = chipTxt(); };
+function quem() {
+  if (S.papel != 'colaboradora') return Promise.resolve(null);
+  if (S.tok && Date.now() - S.tokAt < 180000) { S.tokAt = Date.now(); return Promise.resolve(S.tok); }
+  S.tok = null; S.quem = ''; atualizaChip();
+  return new Promise(res => { _pend = res; abrirModal(); });
+}
+function abrirModal(msg) {
+  const ps = S.pessoas.filter(p => p.loja_id == S.loja), d = $('#md');
+  d.innerHTML = ps.length ? `<div class="mbox"><h3>Quem é você?</h3>
+      <select id="mp">${ps.map(p => `<option value="${p.id}" ${p.id == S.pid ? 'selected' : ''}>${esc(p.nome)}</option>`).join('')}</select>
+      <input id="mpin" type="password" inputmode="numeric" maxlength="6" placeholder="PIN (6 números)" autocomplete="off">
+      <div class="ciclo" style="color:var(--alerta);margin:0">${esc(msg || '')}</div>
+      <div class="row"><button onclick="confirmarPessoa()">Entrar</button><button class="sec" onclick="fecharModal(false)">Cancelar</button></div></div>`
+    : `<div class="mbox"><h3>Nenhuma pessoa cadastrada</h3>Peça à Taianne para cadastrar seu nome e PIN.<button onclick="fecharModal(false)">OK</button></div>`;
+  d.hidden = false;
+  const i = $('#mpin'); if (i && i.focus) i.focus();
+}
+async function confirmarPessoa() {
+  S.pid = +$('#mp').value;
+  const {data, error} = await sb.rpc('verificar_pessoa', {p_pessoa: S.pid, p_pin: $('#mpin').value});
+  if (error || !data || !data.ok) return abrirModal(error ? error.message : (data && data.msg) || 'Não deu certo');
+  S.tok = data.token; S.quem = data.nome; S.tokAt = Date.now();
+  fecharModal(true);
+}
+function fecharModal(ok) {
+  $('#md').hidden = true; $('#md').innerHTML = '';
+  const r = _pend; _pend = null;
+  atualizaChip();
+  if (r) r(ok ? S.tok : false);
+}
+const trocarPessoa = () => { S.tok = null; S.quem = ''; atualizaChip(); quem(); };
+const perdeuSessao = e => { if (e && /Identifique/.test(e.message)) { S.tok = null; S.quem = ''; atualizaChip(); } };
+setInterval(() => { if (S.tok && Date.now() - S.tokAt > 180000) { S.tok = null; S.quem = ''; atualizaChip(); } }, 15000);
+
 async function aj(pid, d) {
+  const tk = await quem();
+  if (tk === false) return;
   const k = S.loja + '_' + pid, ant = qtd(S.loja, pid);
   if (ant + d < 0) return;
   S.est[k] = ant + d; refrescar();
-  const {error} = await sb.rpc('ajustar_estoque', {p_loja: S.loja, p_produto: pid, p_delta: d});
-  if (error) { S.est[k] = ant; refrescar(); alert('Não salvou: ' + error.message); }
+  const {error} = await sb.rpc('ajustar_estoque', {p_loja: S.loja, p_produto: pid, p_delta: d, p_token: tk});
+  if (error) { S.est[k] = ant; refrescar(); perdeuSessao(error); alert('Não salvou: ' + error.message); }
 }
 function ajExato(pid) {
   const v = prompt('Quantidade em estoque agora:', qtd(S.loja, pid));
@@ -435,8 +484,10 @@ async function confirmarRec(i) {
   const g = S.pedidosAg[i], q = {};
   document.querySelectorAll('.rc').forEach(e => { q[e.dataset.k] = Math.max(0, +String(e.value).replace(',', '.') || 0); });
   if (!confirm('Confirmar o recebimento? As quantidades serão somadas ao estoque de ' + g.loja + '.')) return;
-  const {error} = await sb.rpc('receber_pedido', {p_ids: g.rows.map(r => r.id), p_qtds: q});
-  if (error) return alert(error.message + '\n(Você rodou a atualização 7?)');
+  const tk = await quem();
+  if (tk === false) return;
+  const {error} = await sb.rpc('receber_pedido', {p_ids: g.rows.map(r => r.id), p_qtds: q, p_token: tk});
+  if (error) { perdeuSessao(error); return alert(error.message + '\n(Você rodou a atualização 8?)'); }
   S.rec = null; carregar();
 }
 function cartaoPedido(g, i) {
@@ -504,6 +555,21 @@ async function cancelarMov(id) {
   const {error} = await sb.rpc('cancelar_registro', {p_tabela: 'movimentos', p_ids: [id]});
   error ? alert(error.message) : carregar();
 }
+async function addPessoa() {
+  const {error} = await sb.rpc('criar_pessoa', {p_loja: +$('#pl').value, p_nome: $('#pnm').value, p_pin: $('#ppin').value});
+  error ? alert(error.message + (/function/.test(error.message) ? '\n(Você rodou a atualização 8?)' : '')) : carregar();
+}
+async function novoPin(id) {
+  const v = prompt('Novo PIN (6 números):');
+  if (v === null) return;
+  const {error} = await sb.rpc('definir_pin', {p_pessoa: id, p_pin: v.trim()});
+  error ? alert(error.message) : alert('PIN alterado.');
+}
+async function remPessoa(id) {
+  if (!confirm('Remover esta pessoa? Os registros antigos continuam com o nome dela.')) return;
+  const {error} = await sb.rpc('desativar_pessoa', {p_pessoa: id});
+  error ? alert(error.message) : carregar();
+}
 async function csv(vista, arquivo) {
   const {data, error} = await sb.from(vista).select('*');
   if (error) return alert(error.message);
@@ -531,6 +597,11 @@ function vCad() {
   return `<div class="box"><h3>Exportar para o Power BI</h3><div class="ciclo">Baixa uma planilha CSV (abre no Excel e no Power BI).</div><div class="acoes" style="margin:0"><button class="sec" onclick="csv('v_estoque','estoque')">Estoque</button><button class="sec" onclick="csv('v_pedidos','pedidos')">Pedidos</button><button class="sec" onclick="csv('v_consumo','consumo')">Consumo</button></div></div>
     <div class="box"><h3>Lojas</h3>${S.lojas.map(l => `<div class="item"><div class="nome">${esc(l.nome)}</div><button class="sec" aria-label="Excluir loja" onclick="removerLoja(${l.id})">🗑</button></div>`).join('') || 'Nenhuma ainda'}
       <div class="row"><input id="nl" placeholder="Nome da loja"><button onclick="addLoja()">Adicionar</button></div></div>
+    <div class="box"><h3>Pessoas das lojas (nome e PIN)</h3><div class="ciclo">As colaboradoras usam a conta fixa da loja e se identificam com o PIN de 6 números.</div>
+      ${S.pessoas.map(p => `<div class="item"><div class="nome">${esc(p.nome)}<small>${esc(S.lojas.find(l => l.id == p.loja_id)?.nome || '')}</small></div><button class="sec" aria-label="Novo PIN" onclick="novoPin(${p.id})" style="width:auto;padding:0 12px;font-size:14px">PIN</button><button class="sec" aria-label="Remover" onclick="remPessoa(${p.id})">🗑</button></div>`).join('') || 'Nenhuma ainda'}
+      <select id="pl">${S.lojas.map(l => `<option value="${l.id}" ${l.id == S.loja ? 'selected' : ''}>${esc(l.nome)}</option>`).join('')}</select>
+      <div class="row"><input id="pnm" placeholder="Nome"><input id="ppin" type="password" inputmode="numeric" maxlength="6" placeholder="PIN 6 números"></div>
+      <button onclick="addPessoa()">Adicionar pessoa</button></div>
     <div class="box"><h3>Categorias</h3>${S.cats.map(c => `<div class="item"><div class="nome">${esc(c.nome)}<small>${areaInfo(areaCat(c)).e} ${areaInfo(areaCat(c)).n} · ${c.dia_pedido != null ? 'pedido ' + DS[c.dia_pedido] : 'sem dia de pedido'}${c.dia_entrega != null ? ' · entrega ' + DS[c.dia_entrega] : ''}</small></div><button class="sec" aria-label="Editar categoria" onclick="editarCat(${c.id})">✎</button><button class="sec" aria-label="Excluir categoria" onclick="removerCat(${c.id})">🗑</button></div>`).join('') || 'Nenhuma ainda'}
       <h3 style="margin-top:10px">${ec.id ? 'Editar categoria' : 'Nova categoria'}</h3>
       <div class="row"><input id="nc" placeholder="Categoria" value="${esc(ec.nome)}"></div>
@@ -599,13 +670,14 @@ const remover = id => { if (confirm('Remover este produto?')) run(sb.from('produ
 function telaLogin() {
   $('#h').hidden = $('#n').hidden = true;
   $('#m').innerHTML = `<img class="logo-login" src="${LOGO}" alt="Doce Estoque"><div class="box" style="margin-top:20px"><h3>Entrar no estoque</h3>
-    <input id="em" type="email" placeholder="E-mail" autocomplete="username">
+    <input id="em" type="text" placeholder="Usuário ou e-mail" autocomplete="username" autocapitalize="none" autocorrect="off">
     <input id="se" type="password" placeholder="Senha" autocomplete="current-password">
     <button onclick="entrar()">Entrar</button></div>`;
 }
 async function entrar() {
-  const {error} = await sb.auth.signInWithPassword({email: $('#em').value.trim(), password: $('#se').value});
-  error ? alert('E-mail ou senha incorretos.') : carregar();
+  const u = $('#em').value.trim().toLowerCase();
+  const {error} = await sb.auth.signInWithPassword({email: u.includes('@') ? u : u + '@doceestoque.app', password: $('#se').value});
+  error ? alert('Usuário ou senha incorretos.') : carregar();
 }
 const sair = () => sb.auth.signOut().then(telaLogin);
 
@@ -614,3 +686,4 @@ sb.auth.getSession().then(({data}) => data.session ? carregar() : telaLogin());
 </script>
 </body>
 </html>
+ in
